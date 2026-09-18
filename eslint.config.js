@@ -5,6 +5,11 @@ import pluginVue from 'eslint-plugin-vue'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 本地规则：core 跨子模块只能走 barrel
+//
+// 为什么不用 no-restricted-imports 的 patterns 黑名单：
+// 黑名单只能穷举已知路径，'../graph//types'（双斜杠）、'../graph/types.ts'（带后缀）、
+// 以及将来新增的 graph/query.ts 全都绕得过去 —— 越堵越多洞。
+// 这里反过来做白名单：先解析出 import 的真实落点，再判断「是不是跨模块且非 barrel」。
 // ─────────────────────────────────────────────────────────────────────────────
 const SRC_REL = 'src'
 const CORE_REL = 'src/core'
@@ -50,18 +55,25 @@ function checkCoreImport(filename, source) {
   if (targetFile === 'index') return null
 
   const isInsideCore = repoFrom.startsWith(CORE_REL + '/')
-  const fromParts = isInsideCore ? repoFrom.slice(CORE_REL.length + 1).split('/') : []
-  const fromModule = fromParts.length >= 2 ? fromParts[0] : ''
+  // src/core/parser/parse.ts -> 'parser/parse.ts'（子模块内）
+  // src/core/analyze.ts      -> 'analyze.ts'（core 根，改写成 './graph' 而不是 '../graph'）
+  const relFromInCore = isInsideCore ? repoFrom.slice(CORE_REL.length + 1) : ''
+  const fromModule = relFromInCore.includes('/') ? relFromInCore.split('/')[0] : ''
 
   // 同模块内部互引：允许（模块内自己怎么组织是自由的）
   if (fromModule && fromModule === targetModule) return null
+
+  // 自动修复的落点：core 内部改成相对 barrel，core 外部一律 '@/core'
+  const fixTarget = isInsideCore
+    ? `${relFromInCore.includes('/') ? '..' : '.'}/${targetModule}`
+    : '@/core'
 
   return {
     targetModule,
     targetFile,
     source,
-    // core 内部用相对 barrel，core 外部一律走 '@/core'
-    suggestion: isInsideCore ? `'../${targetModule}'` : `'@/core'`,
+    fixTarget,
+    suggestion: `'${fixTarget}'`,
   }
 }
 
@@ -87,6 +99,8 @@ const coreBarrelOnlyRule = {
             node,
             messageId: 'deepImport',
             data: hit,
+            // 支持 eslint --fix：直接把深挖路径改写成 barrel
+            fix: (fixer) => fixer.replaceText(node.source, `'${hit.fixTarget}'`),
           })
         }
       },
@@ -99,6 +113,8 @@ const coreBarrelOnlyRule = {
             node,
             messageId: 'deepImport',
             data: hit,
+            // 支持 eslint --fix：直接把深挖路径改写成 barrel
+            fix: (fixer) => fixer.replaceText(node.source, `'${hit.fixTarget}'`),
           })
         }
       },
@@ -207,7 +223,7 @@ export default tseslint.config(
               message: "core 层的唯一出口是 '@/core'，禁止深挖 core 内部路径。",
             },
             {
-              // 相对形式的 core  barrel 也禁掉，统一跨层写法
+              // 相对形式的 core  barrel 也禁掉，逼着你养成统一的跨层写法
               group: ['../core', '../../core', './core'],
               message: "跨层请用 '@/core'，相对形式的 core 导入只出现在 core 内部。",
             },
