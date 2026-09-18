@@ -113,6 +113,19 @@ export interface AdjacencyIndex {
   incoming: Map<NodeId, GraphLink[]>
 }
 
+/** 按语义名取参数值，找不到返回 undefined */
+export function getWidget(node: GraphNode, name: string): unknown {
+  return node.widgets.find((w) => w.name === name)?.value
+}
+
+/** 按类型名过滤节点 */
+export function findNodesByType(graph: WorkflowGraph, type: string | RegExp): GraphNode[] {
+  if (typeof type === 'string') {
+    return graph.nodes.filter((n) => n.type === type)
+  }
+  return graph.nodes.filter((n) => type.test(n.type))
+}
+
 /**
  * 构建邻接索引
  * 用于快速查找节点的入边和出边，支持 O(1) 时间复杂度。
@@ -136,19 +149,6 @@ export function buildIndex(graph: WorkflowGraph): AdjacencyIndex {
   }
 
   return { nodeById, outgoing, incoming }
-}
-
-/** 按语义名取参数值，找不到返回 undefined */
-export function getWidget(node: GraphNode, name: string): unknown {
-  return node.widgets.find((w) => w.name === name)?.value
-}
-
-/** 按类型名过滤节点 */
-export function filterNodesByType(graph: WorkflowGraph, type: string | RegExp): GraphNode[] {
-  if (typeof type === 'string') {
-    return graph.nodes.filter((n) => n.type === type)
-  }
-  return graph.nodes.filter((n) => type.test(n.type))
 }
 
 function simpleHash(input: string): string {
