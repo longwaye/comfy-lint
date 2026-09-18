@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+.vitest
+*.local
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# 个人文档，不进公开仓库
+md
+*.log
+.pnpm-store*
