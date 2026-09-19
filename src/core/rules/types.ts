@@ -1,49 +1,38 @@
-/** 节点注册表的类型定义。数据来自 ComfyUI 的 /object_info 与 ComfyUI-Manager 的节点库。 */
+import type { WorkflowGraph } from '../graph'
+import type { LocalInventory, NodeRegistry } from '../registry'
 
-/** 节点输入的定义。 */
-export interface NodeInputDef {
-  /** 输入名，与 workflow 中连线或 widget 的名字对应 */
-  name: string
-  /** 'INT' / 'FLOAT' / 'MODEL' 等类型标识；字符串数组表示 COMBO 的候选值 */
-  type: string | string[]
-  /** 可省略的输入，未连线时不算错误 */
-  optional?: boolean
+/** error 会阻止 workflow 运行，warn 可能影响结果，info 只是提示。 */
+export type Severity = 'error' | 'warn' | 'info'
+
+/** 一条诊断结果。规则产出的最小单元，UI 按 severity 分色渲染。 */
+export interface Diagnostic {
+  /** 产出这条诊断的规则 id，便于按规则过滤和去重 */
+  ruleId: string
+  severity: Severity
+  /** 一句话结论，列表项直接展示 */
+  title: string
+  /** 展开后的完整说明 */
+  detail: string
+  /** 关联节点 id，用于 UI 点击定位 */
+  nodeId?: string
+  /** 修复建议，无建议时省略 */
+  suggestion?: string
 }
 
-/** 单个节点类型的定义。 */
-export interface NodeDef {
-  /** 节点类型，如 KSampler，是注册表的键 */
-  type: string
-  /** 展示名 */
-  displayName?: string
-  /** 所属自定义节点包，如 ComfyUI-Impact-Pack */
-  package?: string
-  inputs?: NodeInputDef[]
+/** 规则执行上下文。由 analyze 组装后传入每条规则，规则只读不写。 */
+export interface RuleContext {
+  graph: WorkflowGraph
+  registry: NodeRegistry
+  /** 用户本机环境。未提供时规则应降级为 info，不要在信息不足时报 error */
+  inventory?: Partial<LocalInventory>
 }
 
-/** 节点注册表。用于把节点类型反查到所属节点包，以及还原参数语义名。 */
-export interface NodeRegistry {
-  /** 数据来源版本，用于判断是否需要刷新 */
-  version: string
-  /** 生成时间，ISO 8601 */
-  generatedAt: string
-  /** 按节点类型索引 */
-  nodes: Record<string, NodeDef>
-}
-
-/** 用户本机的资产清单。可选提供，提供后检测能区分"缺失"与"未知"。 */
-export interface LocalInventory {
-  /** 本地已有的模型文件名 */
-  models: string[]
-  /** 本地已安装的节点类型 */
-  nodeTypes: string[]
-  /** 显存容量，单位 GB */
-  vramGB?: number
-}
-
-/** 空注册表，解析时拿不到任何 schema 的兜底值。 */
-export const EMPTY_REGISTRY: NodeRegistry = {
-  version: 'seed',
-  generatedAt: '1970-01-01T00:00:00.000Z',
-  nodes: {},
+/** 一条检测规则。新增检测项：实现本接口，并注册进 BUILTIN_RULES。 */
+export interface Rule {
+  /** 稳定标识，会写进 Diagnostic.ruleId */
+  id: string
+  /** 规则名，展示给用户看 */
+  title: string
+  /** 返回该规则发现的全部问题，无问题时返回空数组 */
+  run(ctx: RuleContext): Diagnostic[]
 }
