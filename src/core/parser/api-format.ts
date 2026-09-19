@@ -55,7 +55,7 @@ export function parseApiFormat(raw: unknown): WorkflowGraph {
           id: linkId,
           from: { node: String(value[0]), slot: value[1] },
           to: { node: id, slot: inputs.length },
-          dataType: null,
+          dataType: null
         })
         inputs.push({ name, dataType: null, link: linkId })
       } else {
@@ -64,7 +64,7 @@ export function parseApiFormat(raw: unknown): WorkflowGraph {
           name,
           value,
           kind: kindOf(value),
-          nameSource: 'schema',
+          nameSource: 'schema'
         })
       }
     }
@@ -77,7 +77,7 @@ export function parseApiFormat(raw: unknown): WorkflowGraph {
       widgets,
       inputs,
       outputs: [],
-      raw: node,
+      raw: node
     })
   }
 
