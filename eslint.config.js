@@ -40,7 +40,23 @@ function checkCoreImport(filename, source) {
       : nodePath.posix.join(nodePath.posix.dirname(repoFrom), source),
   )
 
-  if (!target.startsWith(CORE_REL + '/')) return null // 落点不在 core，不管
+  const isInsideCore = repoFrom.startsWith(CORE_REL + '/')
+  // src/core/parser/parse.ts -> 'parser/parse.ts'（子模块内）
+  // src/core/analyze.ts      -> 'analyze.ts'（core 根，相对路径是 './graph' 而不是 '../graph'）
+  const relFromInCore = isInsideCore ? repoFrom.slice(CORE_REL.length + 1) : ''
+  const inSubmodule = relFromInCore.includes('/')
+
+  // core 内禁用 '@' 别名，一律改成相对路径（与落点在不在 core 无关）。
+  // 这条必须自带 fixer —— no-restricted-imports 的 patterns 规则没有 fixer，
+  // 只靠它拦的话，eslint --fix 跑完还会原样再报一次同样的错。
+  if (isAlias && isInsideCore) {
+    const rel = nodePath.posix.relative(nodePath.posix.dirname(repoFrom), target) || '.'
+    const aliasFixTarget = rel.startsWith('.') ? rel : `./${rel}`
+    return { source, fixTarget: aliasFixTarget, suggestion: `'${aliasFixTarget}'`, alias: true }
+  }
+
+  if (target !== CORE_REL && !target.startsWith(CORE_REL + '/')) return null // 不在 core，不管
+  if (target === CORE_REL) return null // core barrel 本身，合法
 
   const relTarget = target.slice(CORE_REL.length + 1) // 例：graph/types
   const parts = relTarget.split('/')
@@ -54,19 +70,13 @@ function checkCoreImport(filename, source) {
   // 显式写到 index 也算走 barrel
   if (targetFile === 'index') return null
 
-  const isInsideCore = repoFrom.startsWith(CORE_REL + '/')
-  // src/core/parser/parse.ts -> 'parser/parse.ts'（子模块内）
-  // src/core/analyze.ts      -> 'analyze.ts'（core 根，改写成 './graph' 而不是 '../graph'）
-  const relFromInCore = isInsideCore ? repoFrom.slice(CORE_REL.length + 1) : ''
-  const fromModule = relFromInCore.includes('/') ? relFromInCore.split('/')[0] : ''
+  const fromModule = inSubmodule ? relFromInCore.split('/')[0] : ''
 
   // 同模块内部互引：允许（模块内自己怎么组织是自由的）
   if (fromModule && fromModule === targetModule) return null
 
   // 自动修复的落点：core 内部改成相对 barrel，core 外部一律 '@/core'
-  const fixTarget = isInsideCore
-    ? `${relFromInCore.includes('/') ? '..' : '.'}/${targetModule}`
-    : '@/core'
+  const fixTarget = isInsideCore ? `${inSubmodule ? '..' : '.'}/${targetModule}` : '@/core'
 
   return {
     targetModule,
@@ -80,12 +90,17 @@ function checkCoreImport(filename, source) {
 const coreBarrelOnlyRule = {
   meta: {
     type: 'problem',
+    // 规则提供了 fix（把深挖路径改写成 barrel），必须声明 fixable，
+    // 否则 ESLint 直接抛 "Fixable rules must set the meta.fixable property"
+    fixable: 'code',
     docs: {
       description: 'core 层跨子模块 import 必须走该模块的 barrel（index.ts）',
     },
     messages: {
       deepImport:
         "禁止深挖 core 内部文件：'{{source}}' 指向 {{targetModule}}/{{targetFile}}。请改成 {{suggestion}}。",
+      aliasInCore:
+        "core 层禁用 '@' 别名：'{{source}}' 会把 import 绑死在宿主的 alias 配置上，core 就搬不走了。请改成相对路径 {{suggestion}}。",
     },
     schema: [],
   },
@@ -97,7 +112,7 @@ const coreBarrelOnlyRule = {
         if (hit) {
           context.report({
             node,
-            messageId: 'deepImport',
+            messageId: hit.alias ? 'aliasInCore' : 'deepImport',
             data: hit,
             // 支持 eslint --fix：直接把深挖路径改写成 barrel
             fix: (fixer) => fixer.replaceText(node.source, `'${hit.fixTarget}'`),
@@ -111,7 +126,7 @@ const coreBarrelOnlyRule = {
         if (hit) {
           context.report({
             node,
-            messageId: 'deepImport',
+            messageId: hit.alias ? 'aliasInCore' : 'deepImport',
             data: hit,
             // 支持 eslint --fix：直接把深挖路径改写成 barrel
             fix: (fixer) => fixer.replaceText(node.source, `'${hit.fixTarget}'`),
